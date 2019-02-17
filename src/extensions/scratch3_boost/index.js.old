@@ -103,18 +103,18 @@ const BoostStatus = {
 };
 // COLORS
 const BoostColor = {
-0x00 : "black",
-0x01 : "pink",
-0x02 : "purple",
-0x03 : "blue",
-0x04 : "light blue",
-0x05 : "cyan",
-0x06 : "green",
-0x07 : "yellow",
-0x08 : "orange",
-0x09 : "red",
-0x0A : "white",
-0xFF : "none"
+BLACK : 0x00,
+PINK : 0x01,
+PURPLE : 0x02,
+BLUE : 0x03,
+LIGHTBLUE : 0x04,
+CYAN : 0x05,
+GREEN : 0x06,
+YELLOW : 0x07,
+ORANGE : 0x09,
+RED : 0x09,
+WHITE : 0x0a,
+NONE : 0xFF,
 };
 // Info 
 const BoostInfo = {
@@ -217,16 +217,11 @@ const BLESendRateMax = 20;
 
 class Peripheral
 {
-	 constructor( parent, port, flagOutput)
+	 constructor( parent, port)
 	 {
         this.parent = parent;
         this.port = port;
-        this._working = false;
-        this.flagOutput = flagOutput;   
-
-        if ( this.flagOutput)
-			this.eventEmitter = new EventEmitter();
-	  }
+	}
 
 
       _write_to_hub(msg_type, params)
@@ -274,6 +269,15 @@ class Peripheral
 			return out;
 	}
 
+
+}
+
+class Sensor extends Peripheral
+{
+	constructor(parent,port)
+	{
+		super(parent,port);
+	}
 	subscribe(mode, granularity=1, async=false)
 	{
         this._port_subscription_mode = mode;
@@ -288,10 +292,20 @@ class Peripheral
             console.log("Attempt to unsubscribe while never subscribed.");
             return;
        }
-	   this._port_subscribe(this._port_subscription_mode, 0, false);
-       this._port_subscription_mode = null;
-	   this.isSubcribed = true;
+		this._port_subscribe(this._port_subscription_mode, 0, false);
+        this._port_subscription_mode = null;
+		this.isSubcribed = true;
 
+    }
+}
+
+class OutputDevice extends Peripheral
+{
+	constructor(parent,port)
+	{
+		super(parent,port);
+        this._working = false;     
+        this.eventEmitter = new EventEmitter();
     }
 
 
@@ -306,13 +320,11 @@ class Peripheral
     }
 }
 
-class BoostEncodedMotor extends Peripheral
+class BoostEncodedMotor extends OutputDevice
 {
 	constructor (parent,port)
 	{
-		super(parent,port,true);
-		this.rotation = 0;
-		this.speed = 0;
+		super(parent,port);
 	} 
 	
 	finished()
@@ -421,20 +433,12 @@ class BoostEncodedMotor extends Peripheral
         return;
 	}
 	
-	subscribe(mode = BoostMotorsConstants.SENSOR_ANGLE)
-    {
-		super.subscribe(mode, granularity=1);
-	}
-
-	
     handle_port_data(data)
     {
         if (this._port_subscription_mode == BoostMotorsConstants.SENSOR_ANGLE)
         {
-			unsigned_value = this._convertFromLittleEnd(data.slice(4,8));
-			signed_value = unsigned_value<2147483648?unsigned_value:(unsigned_value-4294967296);
-            this.rotation = signed_value;
-            
+            rotation = this._convertFromLittleEnd(data.slice(4,9));
+            this._notify_subscribers(rotation)
 		}
         else if (this._port_subscription_mode == BoostMotorsConstants.SENSOR_SOMETHING1)
         {
@@ -444,18 +448,19 @@ class BoostEncodedMotor extends Peripheral
         }
         else if (this._port_subscription_mode == BoostMotorsConstants.SENSOR_SPEED)
         {
-            this.speed = data[4];
+            rotation = data[4];
+            this._notify_subscribers(rotation)
 		}
         else
             console.log("Got motor sensor data while in unexpected mode: %s", this._port_subscription_mode);
      }
 }
 
-class BoostLED extends Peripheral
+class BoostLED extends OutputDevice
 {
 	constructor (parent,port)
 	{
-		super(parent,port,true);
+		super(parent,port);
 	} 
 	
 	setLED (hue) {
@@ -477,11 +482,11 @@ class BoostLED extends Peripheral
 
 
  
-class TiltSensor extends Peripheral
+class TiltSensor extends Sensor
 {
 	constructor(parent,port)
     {
-		super(parent,port,false);
+		super(parent,port);
 	}
     subscribe(mode = BoostTiltSensorMode.THREE_AXIS_FULL)
     {
@@ -522,11 +527,11 @@ class TiltSensor extends Peripheral
 }
 
 
-class ColorDistanceSensor extends Peripheral
+class ColorDistanceSensor extends Sensor
 {
     constructor(parent,port)
     {
-		super(parent,port,false);
+		super(parent,port);
 	}
     subscribe()
     {
@@ -576,11 +581,11 @@ class ColorDistanceSensor extends Peripheral
 }
 
 
-class VoltageSensor extends Peripheral
+class VoltageSensor extends Sensor
 {
     constructor(parent,port)
     {
-		super(parent,port,false);
+		super(parent,port);
 	}
     subscribe()
     {
@@ -592,11 +597,11 @@ class VoltageSensor extends Peripheral
 	}
 }
 
-class AmperageSensor extends Peripheral
+class AmperageSensor extends Sensor
 {
     constructor(parent,port)
     {
-		super(parent,port,false);
+		super(parent,port);
 	}
     subscribe()
     {
@@ -947,47 +952,6 @@ class Scratch3BoostBlocks {
                     }
                 },
                 {
-					opcode: 'getMotorAngle',
-                    text: formatMessage({
-                        id: 'boost.getMotorAngle',
-                        default: 'get angle of motor [MOTOR_ID]',
-                        description: 'the actual angle of the motor'
-                    }),
-                    blockType: BlockType.REPORTER,
-                    arguments: {
-                        MOTOR_ID: {
-                            type: ArgumentType.STRING,
-                            menu: 'MOTOR_ID',
-                            defaultValue: 'A'
-                        }
-                    }
-                },
-                {
-                    opcode: 'whenMotorAngle',
-                    text: formatMessage({
-                        id: 'boost.whenMotorAngle',
-                        default: 'when angle of motor [MOTOR_ID] [OP] [REFERENCE]',
-                        description: 'check for when motor angle is < or > than reference'
-                    }),
-                    blockType: BlockType.HAT,
-                    arguments: {
-						MOTOR_ID: {
-                            type: ArgumentType.STRING,
-                            menu: 'MOTOR_ID',
-                            defaultValue: 'A'
-                        },
-                        OP: {
-                            type: ArgumentType.STRING,
-                            menu: 'OP',
-                            defaultValue: '<'
-                        },
-                        REFERENCE: {
-                            type: ArgumentType.ANGLE,
-                            defaultValue: 50
-                        }
-                    }
-                },
-                {
                     opcode: 'motorOnForAngle',
                     text: formatMessage({
                         id: 'boost.motorOnForAngle',
@@ -1002,7 +966,7 @@ class Scratch3BoostBlocks {
                             defaultValue: 'A'
                         },
                         ANGLE: {
-                            type: ArgumentType.ANGLE,
+                            type: ArgumentType.NUMBER,
                             defaultValue: 1
                         },
                         SPEED: {
@@ -1063,7 +1027,7 @@ class Scratch3BoostBlocks {
                     blockType: BlockType.COMMAND,
                     arguments: {
                         ANGLE: {
-                            type: ArgumentType.ANGLE,
+                            type: ArgumentType.NUMBER,
                             defaultValue: 1
                         },
                         SPEEDA: {
@@ -1094,30 +1058,34 @@ class Scratch3BoostBlocks {
                     }
                 },
                 {
-                    opcode: 'setLightColor',
+                    opcode: 'setLightHue',
                     text: formatMessage({
-                        id: 'boost.setLightColor',
-                        default: 'set color to [COLOR]',
+                        id: 'boost.setLightHue',
+                        default: 'set light color to [HUE]',
                         description: 'set the LED color'
                     }),
                     blockType: BlockType.COMMAND,
                     arguments: {
-                        COLOR: {
-                            type: ArgumentType.STRING,
-                            menu: 'SENSOR_COLORS',
-                            defaultValue: "white"
+                        HUE: {
+                            type: ArgumentType.NUMBER,
+                            defaultValue: 50
                         }
                     }
                 },
                 {
-                    opcode: 'whenDistanceSensor',
+                    opcode: 'whenOpticSensor',
                     text: formatMessage({
-                        id: 'boost.whenDistanceSensor',
-                        default: 'when distance [OP] [REFERENCE]',
-                        description: 'check for when distance is < or > than reference'
+                        id: 'boost.whenOpticSensor',
+                        default: 'when [SENSOR] [OP] [REFERENCE]',
+                        description: 'check for when sensor is < or > than reference'
                     }),
                     blockType: BlockType.HAT,
                     arguments: {
+						SENSOR: {
+			                type: ArgumentType.STRING,
+                            menu: 'OPTIC_SENSOR_ID',
+                            defaultValue: 'distance'
+                        },				
                         OP: {
                             type: ArgumentType.STRING,
                             menu: 'OP',
@@ -1130,29 +1098,20 @@ class Scratch3BoostBlocks {
                     }
                 },
                 {
-                    opcode: 'whenColorSensor',
+                opcode: 'getOpticSensor',
                     text: formatMessage({
-                        id: 'boost.whenColorSensor',
-                        default: 'when [COLOR] is detected',
-                        description: 'check when optic sensor detect color'
-                    }),
-                    blockType: BlockType.HAT,
-                    arguments: {
-                        COLOR: {
-                            type: ArgumentType.STRING,
-                            menu: 'SENSOR_COLORS',
-                            defaultValue: 'white'
-                        }
-                    }
-                },
-                {
-					opcode: 'getDistanceSensor',
-                    text: formatMessage({
-                        id: 'boost.getDistanceSensor',
-                        default: 'get distance from sensor',
+                        id: 'boost.getOpticSensor',
+                        default: '[SENSOR]',
                         description: 'the value returned by the distance sensor'
                     }),
                     blockType: BlockType.REPORTER,
+                      arguments: {
+						SENSOR: {
+			                type: ArgumentType.STRING,
+                            menu: 'OPTIC_SENSOR_ID',
+                            defaultValue: 'distance'
+                        },
+                      }
                 },
                 {
                     opcode: 'whenTiltSensor',
@@ -1174,7 +1133,7 @@ class Scratch3BoostBlocks {
                             defaultValue: '<'
                         },
                         REFERENCE: {
-                            type: ArgumentType.ANGLE,
+                            type: ArgumentType.NUMBER,
                             defaultValue: 50
                         }
                     }
@@ -1256,6 +1215,24 @@ class Scratch3BoostBlocks {
                         value: "D"
                     },
                 ],
+                OPTIC_SENSOR_ID: [
+                   {
+                        text: formatMessage({
+                            id: 'boost.opticSensor.distance',
+                            default: 'distance',
+                            description: 'label for distance in optic detector menu for LEGO boost extension'
+                        }),
+                        value: "distance"
+                    },
+                    {
+                        text: formatMessage({
+                            id: 'boost.opticSensor.color',
+                            default: 'color',
+                            description: 'label for color in optic detector menu for LEGO boost extension'
+                        }),
+                        value: "color"
+                    },
+                ],
                 TILT_SENSOR_ID: [
                     {
                         text: formatMessage({
@@ -1302,7 +1279,6 @@ class Scratch3BoostBlocks {
                 ],
 
                 OP: ['<', '>'],
-                SENSOR_COLORS: ['black','pink','purple','blue','light blue','cyan','green','yellow','orange','red','white','none'],
             }
         };
     }
@@ -1361,14 +1337,12 @@ class Scratch3BoostBlocks {
      * @property {number} HUE - the hue to set, in the range [0,100].
      * @return {Promise} - a Promise that resolves after some delay.
      */
-    setLightColor (args) {
+    setLightHue (args) {
         // Convert from [0,100] to [0,10]
-        var key
-        for(key in BoostColor)
-        {
-			if (BoostColor[key] === args.COLOR) break;
-		}
-        this._peripheral.devices['LED'].setLED(key);
+        let inputHue = Cast.toNumber(args.HUE);
+        inputHue = MathUtil.wrapClamp(inputHue, 0, 100);
+        const hue = parseInt(inputHue * 9 / 100);
+        this._peripheral.devices['LED'].setLED(hue);
 
         return new Promise(resolve => {
             window.setTimeout(() => {
@@ -1377,16 +1351,16 @@ class Scratch3BoostBlocks {
         });
     }
     
-    getMotorAngle (args) {
-		if (!(args.MOTOR_ID in this._peripheral.devices)) return 0;
-		if  (!this._peripheral.devices[args.MOTOR_ID].isSubcribed) this._peripheral.devices[args.MOTOR_ID].subscribe();
-		value = this._peripheral.devices[args.MOTOR_ID].rotation;
-
-        return value;
-	}
-	
-	whenMotorAngle(args) {
-		value = getMotorAngle (args);
+    whenOpticSensor (args) {
+		if (!("DISTANCE" in this._peripheral.devices)) return false;
+		if  (!this._peripheral.devices["DISTANCE"].isSubcribed) this._peripheral.devices["DISTANCE"].subscribe();
+		switch (args.SENSOR) {
+		case 'distance':
+			value = this._peripheral.devices["DISTANCE"].distance;
+			break;
+		case 'color':
+			value = this._peripheral.devices["DISTANCE"].color;
+		}
         switch (args.OP) {
         case '<':
             return value < Cast.toNumber(args.REFERENCE);
@@ -1397,33 +1371,16 @@ class Scratch3BoostBlocks {
             return false;
         }
     }
-    
-    whenDistanceSensor (args) {
-		if (!("DISTANCE" in this._peripheral.devices)) return false;
-		if  (!this._peripheral.devices["DISTANCE"].isSubcribed) this._peripheral.devices["DISTANCE"].subscribe();
-		value = this._peripheral.devices["DISTANCE"].distance;
-        switch (args.OP) {
-        case '<':
-            return value < Cast.toNumber(args.REFERENCE);
-        case '>':
-            return value > Cast.toNumber(args.REFERENCE);
-        default:
-            console.log(`Unknown comparison operator in whenDistance: ${args.OP}`);
-            return false;
-        }
-    }
-    
-    whenColorSensor (args) {
-		if (!("DISTANCE" in this._peripheral.devices)) return false;
-		if  (!this._peripheral.devices["DISTANCE"].isSubcribed) this._peripheral.devices["DISTANCE"].subscribe();
-		value = this._peripheral.devices["DISTANCE"].color;
-        return (args.COLOR == BoostColor[value]);
-    }
-    
-    getDistanceSensor (args) {
+    getOpticSensor (args) {
 		if (!("DISTANCE" in this._peripheral.devices)) return 0;
 		if  (!this._peripheral.devices["DISTANCE"].isSubcribed) this._peripheral.devices["DISTANCE"].subscribe();
-		value = this._peripheral.devices["DISTANCE"].distance;
+		switch (args.SENSOR) {
+		case 'distance':
+			value = this._peripheral.devices["DISTANCE"].distance;
+			break;
+		case 'color':
+			value = this._peripheral.devices["DISTANCE"].color;
+		}
         return value;
     }
     
